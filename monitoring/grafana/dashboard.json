@@ -1,0 +1,33 @@
+{
+  "id": null,
+  "title": "LES Metrics",
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Water pH",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "water_ph", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Dissolved Oxygen (mg/L)",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "dissolved_oxygen_mg_per_l", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Simulation Throughput (steps/s)",
+      "gridPos": {"x": 0, "y": 8, "w": 24, "h": 8},
+      "targets": [
+        {"expr": "simulation_throughput_steps_per_second", "refId": "A"}
+      ]
+    }
+  ]
+}
