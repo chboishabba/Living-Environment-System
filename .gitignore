@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+les/modules/events/events.csv
+.pytest_cache/
