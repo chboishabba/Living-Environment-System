@@ -179,19 +179,35 @@ Minimal interface (inspired by **CSDMS BMI**):
 
 ---
 
-## 🗂 Data & I/O
+## 🗂 GIS & Plans Intake
 
-* **Inputs**: DEM (GeoTIFF), soils (GeoPackage/GeoTIFF), land cover (COPERNICUS/USGS classes), hydrography (GeoPackage), meteorology (NetCDF/GRIB/Zarr), species/traits (CSV/JSON).
-* **Outputs**: NetCDF/Zarr (analysis), Parquet/Arrow (tabular), PNG/Cloud‑Optimized GeoTIFF (maps).
-* **Catalogs**: STAC/Intake catalogs for reproducible datasets.
+* **Raster**: Cloud‑Optimized GeoTIFF/GeoTIFF, NetCDF/GRIB and chunked Zarr stores ingested with **rioxarray/xarray**.
+* **Vector**: **GeoPackage** and **FlatGeobuf** layers via **GeoPandas** (legacy Shapefile tolerated).
+* **Catalogs**: **STAC** entries with optional caching to local Zarr/Parquet for reproducibility.
+* **Plans**: **IFC/DWG/DXF** site plans converted (ifcopenshell/FME/QGIS) to GeoPackage layers; optional 3D path IFC → CityJSON/CityGML → Cesium 3D Tiles for visualization. Information loss outside native BIM is documented.
+* **CRS policy**: all inputs reprojected to the scenario CRS and tagged with metadata; outputs remain **CF/UDUNITS** compliant.
+* **Processing queue**: headless **QGIS Processing**/**GDAL** steps recompute derived rasters (slope, buffers, least‑cost paths) on demand.
 
 ---
 
-## 📊 Visualization & UX
+## 🧭 Planning & Decision Support
 
-* **Scientific**: ParaView, QGIS, xarray + hvPlot/datashader notebooks.
-* **Interactive**: Unreal/Unity bridge (stream heightfields, vegetation instances, water/flow textures); or WebGL (deck.gl/kepler.gl) for maps and timelines.
-* **Scenario Manager**: YAML configs + sliders for precipitation intensity, planting density, grazing rate, etc.
+* **Scenario manager**: YAML definitions of interventions and levers (planting density, setbacks, detention basins, stocking rates).
+* **Multi‑criteria evaluation / geodesign**: weighted raster overlays and constraint maps built with **xarray+Dask** map algebra.
+* **Optimisation**: multi‑objective solvers (e.g., **NSGA‑II**, **CP‑SAT**) explore trade‑offs among cost, erosion, habitat, yield.
+* **Probabilistic reasoning**: **Bayesian networks** and risk models consume GIS layers and simulation outputs.
+* **Agent‑based models**: movement and behaviour driven by GIS suitability rasters and network layers for wildlife or human agents.
+
+Results feed closed‑loop controllers, diet/feed planners, and stakeholder dashboards.
+
+---
+
+## ⚙️ Execution & Visualization
+
+* **Prototype mode**: Python orchestrator with **xarray+Dask** and headless **QGIS Processing** for geoprocessing.
+* **HPC mode**: **ESMF/ESMPy** or **OpenMI** coupling on MPI for parallel modules with conservative remapping.
+* **Visualization**: ParaView/QGIS for analysis; **Cesium 3D Tiles** or WebGL maps for interactive digital‑twin views.
+* **Scenario UI**: sliders and dashboards driving YAML configurations for exploratory planning sessions.
 
 ---
 
