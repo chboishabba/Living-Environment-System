@@ -15,7 +15,34 @@ import argparse
 import random
 import time
 
-from prometheus_client import Counter, Gauge, start_http_server
+try:  # pragma: no cover - import guarded for environments without prometheus_client
+    from prometheus_client import Counter, Gauge, start_http_server
+except ImportError:  # pragma: no cover - fallback implementations
+    class _Metric:  # lightweight stand-ins used when prometheus_client is missing
+        class _Value:
+            def __init__(self) -> None:
+                self._v = 0.0
+
+            def get(self) -> float:
+                return self._v
+
+        def __init__(self, *args, **kwargs) -> None:  # noqa: D401 - match prometheus_client API
+            self._value = self._Value()
+
+    class Counter(_Metric):
+        def inc(self, amount: float = 1.0) -> None:
+            self._value._v += amount
+
+    class Gauge(_Metric):
+        def set(self, value: float) -> None:
+            self._value._v = value
+
+        def inc(self, amount: float = 1.0) -> None:
+            self._value._v += amount
+
+    def start_http_server(*_args, **_kwargs) -> None:
+        """Fallback no-op server starter used when prometheus_client is absent."""
+        return None
 
 # Gauges for current state measurements
 water_ph = Gauge("water_ph", "Current water pH level")
