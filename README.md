@@ -25,6 +25,7 @@ This means:
 
 **Part of the Living Environment Platform**
 *A modular, multi‑scale, feedback‑aware simulation framework that couples atmosphere, hydrology, geomorphology, vegetation, wildlife, and human systems — designed for research, planning, and interactive visualization.*
+<img width="5261" height="26157" alt="NotebookLM Mind Map(5)" src="https://github.com/user-attachments/assets/fca6cab0-7803-4007-8e50-9992c179c908" />
 
 ---
 
