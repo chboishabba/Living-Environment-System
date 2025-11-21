@@ -42,6 +42,7 @@ This means:
 * Educational/interactive “living world” demonstrators.
 
 ---
+<img width="7909" height="14036" alt="NotebookLM Mind Map(13)" src="https://github.com/user-attachments/assets/c7915f5b-b22a-4f7c-9b3a-feb2d08611a7" />
 
 ## 🎯 Goals & Non‑Goals
 
