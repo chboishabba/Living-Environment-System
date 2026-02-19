@@ -1217,3 +1217,711 @@ The whole thing is a deterministic automaton with an optimal controller:
 * **Controller:** chooses (a_t) to maximize cumulative reward
 
 So: **state machine + optimizer = most profitable feasible rotations**.
+
+
+
+
+
+
+
+
+
+
+
+
+---
+
+# 🌱 Integrated Farm Optimization Formalism
+
+**(Crops + KNF Inputs + Livestock + Soil Invariants)**
+
+---
+
+# 1. Time
+
+Discrete time horizon:
+
+[
+t \in {1,2,\dots,T}
+]
+
+For 1-year planning:
+
+* (T = 4) (quarters), or
+* (T = 6\text{–}8) (market garden windows)
+
+---
+
+# 2. Sets
+
+* Beds: (b \in {1,\dots,B})
+* Crop actions: (c \in \mathcal{C})
+* Input actions: (i \in \mathcal{I})
+* Livestock actions: (\ell \in \mathcal{L})
+
+Composite action per bed per time:
+
+[
+a_t^{(b)} = (c_t^{(b)}, i_t^{(b)}, \ell_t^{(b)})
+]
+
+Global actions (shared resources) allowed if needed.
+
+---
+
+# 3. State Space
+
+## 3.1 Bed State
+
+For each bed (b):
+
+[
+x_t^{(b)} =
+(N_t^{(b)}, C_t^{(b)}, S_t^{(b)}, F_t^{(b)}, D_t^{(b)})
+]
+
+Where:
+
+* (N) = fertility bucket (0…5)
+* (C) = soil carbon bucket (0…5)
+* (S) = structure bucket (0…5)
+* (F) = last crop family (categorical)
+* (D) = disease/pest pressure bucket (0…5)
+
+Minimal version removes (D).
+
+---
+
+## 3.2 Global Farm Resource State
+
+[
+g_t =
+(W_t, L_t, A_t, K^N_t, K^C_t, M_t, B_t, P_t)
+]
+
+Where:
+
+* (W_t) = water available
+* (L_t) = labor hours available
+* (A_t) = input production capacity (space)
+* (K^N_t) = KNF nitrogen credits
+* (K^C_t) = compost/carbon credits
+* (M_t) = manure credits
+* (B_t) = forage biomass
+* (P_t) = parasite pressure
+
+Minimal subset:
+[
+(W, L, K^N, K^C, B)
+]
+
+---
+
+## 3.3 Full System State
+
+[
+X_t = \big(x_t^{(1)},\dots,x_t^{(B)}, g_t\big)
+]
+
+---
+
+# 4. Action Definitions
+
+## 4.1 Crop Action (c)
+
+Each crop (c \in \mathcal{C}) defines:
+
+* (fam(c))
+* Revenue (Rev_t(c))
+* Cost (Cost_t(c))
+* Resource use (w(c), \ell(c))
+* Soil deltas:
+  [
+  \Delta(c) = (\Delta_N, \Delta_C, \Delta_S, \Delta_D)
+  ]
+
+---
+
+## 4.2 Input Action (i)
+
+Each input action defines:
+
+* Resource consumption:
+  [
+  (\Delta W, \Delta L, \Delta A)
+  ]
+* Stock production:
+  [
+  (\Delta K^N, \Delta K^C, \Delta M)
+  ]
+* Optional direct soil effects if applied.
+
+Example:
+
+* `make_KNF_N`:
+  ( \Delta L = -2,; \Delta W = -1,; \Delta K^N = +3 )
+
+* `apply_KNF_N(b,u)`:
+  ( K^N -= u,; N^{(b)} += u )
+
+---
+
+## 4.3 Livestock Action (\ell)
+
+Defines:
+
+* Revenue (Rev(\ell))
+* Costs (Cost(\ell))
+* Soil impact:
+  [
+  (\Delta_N^\ell, \Delta_C^\ell, \Delta_S^\ell)
+  ]
+* Biomass/manure flow:
+  [
+  \Delta B,; \Delta M
+  ]
+* Parasite update:
+  [
+  \Delta P
+  ]
+
+Example:
+
+* Poultry pass:
+
+  * ( \Delta_N = +1 )
+  * ( \Delta_S = -1 ) (if overworked)
+  * revenue from eggs
+  * labor cost
+
+---
+
+# 5. Deterministic Transition Function
+
+## 5.1 Bed Transition
+
+For each bed:
+
+[
+\begin{aligned}
+N' &= clamp(N + \Delta_N(c) + \Delta_N(i,\ell), 0, 5) \
+C' &= clamp(C + \Delta_C(c) + \Delta_C(i,\ell), 0, 5) \
+S' &= clamp(S + \Delta_S(c) + \Delta_S(i,\ell), 0, 5) \
+D' &= clamp(D + \Delta_D(c,\ell), 0, 5) \
+F' &= fam(c)
+\end{aligned}
+]
+
+All transitions are deterministic.
+
+---
+
+## 5.2 Global Resource Transition
+
+[
+g_{t+1} = g_t + \sum \Delta(\text{inputs}) + \sum \Delta(\text{livestock}) - \sum \Delta(\text{crop resource use})
+]
+
+Subject to:
+
+[
+W_t, L_t, A_t, K^N_t, K^C_t, B_t \ge 0
+]
+
+---
+
+# 6. Constraints
+
+## 6.1 Soil Invariants (Hard)
+
+For all (t,b):
+
+[
+N_t^{(b)} \ge N_{\min}
+]
+[
+C_t^{(b)} \ge C_{\min}
+]
+[
+S_t^{(b)} \ge S_{\min}
+]
+
+---
+
+## 6.2 Rotation Constraint
+
+No same family consecutively:
+
+[
+fam(c_t^{(b)}) \ne F_t^{(b)}
+]
+
+Extendable to k-period memory.
+
+---
+
+## 6.3 Livestock Guardrails
+
+Example:
+
+If (S_t^{(b)} \le S_{wet}), grazing disallowed.
+
+If (P_t \ge P_{max}), force rest action.
+
+---
+
+# 7. Objective Function
+
+Total profit over horizon:
+
+[
+\max_{a_1,\dots,a_T}
+\left(
+\sum_{t=1}^{T} R_t(X_t,a_t)
+
+* R_{terminal}(X_{T+1})
+  \right)
+  ]
+
+Where:
+
+[
+R_t =
+\sum_b \big(Rev(c_t^{(b)}) - Cost(c_t^{(b)})\big)
+
+* Cost(i_t)
+* Cost(\ell_t)
+  ]
+
+Optional terminal soil value:
+
+[
+R_{terminal} =
+\lambda_N \sum_b N_{T+1}^{(b)}
++
+\lambda_C \sum_b C_{T+1}^{(b)}
++
+\lambda_S \sum_b S_{T+1}^{(b)}
+]
+
+---
+
+# 8. Solution Methods
+
+### Single bed
+
+Dynamic Programming:
+
+[
+V_t(X) = \max_{a \in \mathcal{A}(X)} \left( R_t(X,a) + V_{t+1}(T(X,a)) \right)
+]
+
+### Multi-bed
+
+Mixed Integer Programming (binary crop decisions + linear soil/resource updates).
+
+---
+
+# 9. Minimal Implementable Instance (1-Year, 4 Slots)
+
+State buckets:
+
+* (N,C,S \in {0,\dots,5})
+* Families: {Solanaceae, Brassica, Cucurbit, Legume, Allium}
+
+Actions:
+
+* 10 crop options
+* 2 input actions (make/apply KNF)
+* 1 livestock action (poultry pass)
+* 1 rest action
+
+Constraints:
+
+* Soil ≥ (2,2,2)
+* No family repeat
+
+That system is:
+
+* Fully deterministic
+* Economically optimizing
+* Soil-constrained
+* KNF-aware
+* Livestock-aware
+
+---
+
+# 10. Conceptual Summary
+
+This formalism models the farm as:
+
+[
+\textbf{Deterministic State Machine}
++
+\textbf{Resource Balance System}
++
+\textbf{Constrained Optimal Control Problem}
+]
+
+Crops extract.
+KNF converts labor/biomass → fertility.
+Livestock converts forage → manure + revenue.
+Soil state enforces long-term viability.
+Optimizer selects the profit-maximizing feasible trajectory.
+
+
+
+
+
+
+# **LES + Farm-to-Plate-and-Pond roadmap**
+
+
+# 🔁 1. Close the Nutrient Loop (Mass-Balance Extension)
+
+Right now, soil fertility is bucketed. LES explicitly models:
+
+* nutrient flows between water, soil, plants, animals 
+
+So extend soil state from buckets to **explicit mass balance**:
+
+### Add State Variables
+
+For each bed:
+
+[
+x_t^{(b)} =
+(N_t, P_t, K_t, C_t, S_t, F_t, D_t)
+]
+
+And for water bodies (aquaponics or pond):
+
+[
+w_t =
+(TAN_t, NO_2_t, NO_3_t, PO_4_t, DO_t)
+]
+
+Now crop uptake becomes:
+
+[
+N_{t+1} = N_t - U_N(c) + M_N(\ell,i)
+]
+
+Fish feed becomes:
+
+[
+TAN_{t+1} = TAN_t + f(\text{protein input}) - nitrification
+]
+
+Plants remove:
+
+[
+NO_3_{t+1} = NO_3_t - U_{NO3}(plant)
+]
+
+This integrates aquaponics nutrient cycling *directly* into crop fertility and removes the artificial separation between soil and water fertility.
+
+---
+
+# 🌧 2. Weather & Climate Forcing (LES Coupling)
+
+LES includes:
+
+* weather
+* hydrology
+* evapotranspiration 
+
+Add exogenous climate forcing:
+
+[
+\omega_t = (Rain_t, Temp_t, Solar_t, Wind_t)
+]
+
+Now crop yield becomes:
+
+[
+Yield(c,t) = Y_{base}(c) \cdot g(N_t, C_t, S_t, \omega_t)
+]
+
+Water budget:
+
+[
+W_{t+1} = W_t + Rain_t - ET_t - Irrigation_t
+]
+
+This turns the optimizer into:
+
+> Optimal control under stochastic environmental forcing.
+
+Now you can:
+
+* simulate drought years
+* evaluate irrigation investment
+* test windbreak planting effect on evapotranspiration
+
+---
+
+# 🐄 3. Energy & Oxygen Budgets
+
+Your roadmap includes automation and oxygen hooks.
+
+Add:
+
+For aquaculture:
+
+[
+DO_{t+1} = DO_t + Aeration_t - O_2_consumption(fish, microbes)
+]
+
+Constraint:
+
+[
+DO_t \ge DO_{critical}
+]
+
+Now feed formulation directly affects oxygen risk.
+The optimizer may reduce protein % or increase aeration if electricity cost is lower.
+
+This creates a real energy-nutrient tradeoff.
+
+---
+
+# 💰 4. Capital & Infrastructure State
+
+LES supports management interventions.
+
+Add infrastructure state:
+
+[
+I_t = (Greenhouse_area, Tank_volume, Aerator_capacity, Fencing_capacity)
+]
+
+Actions may include:
+
+* build greenhouse
+* add tank
+* install aerator
+
+State evolves:
+
+[
+I_{t+1} = I_t + Build_t
+]
+
+Add depreciation + capital constraint.
+
+Now you can optimize:
+
+* whether expanding tank volume is better than buying feed
+* whether windbreak reduces irrigation cost enough to justify planting
+
+This moves the model from “rotation optimizer” to **farm growth optimizer**.
+
+---
+
+# 📈 5. Risk & Uncertainty Layer
+
+LES roadmap includes probabilistic reasoning.
+
+Extend:
+
+Let yield be stochastic:
+
+[
+Yield(c,t) = \bar{Y}(c,t) + \epsilon_t
+]
+
+Then solve:
+
+* Expected profit maximization
+* CVaR (Conditional Value at Risk)
+* Robust optimization
+
+Objective:
+
+[
+\max \mathbb{E}[Profit] - \rho \cdot Risk
+]
+
+Now the optimizer may choose diversified crops rather than high-margin monoculture.
+
+---
+
+# 🧠 6. Multi-Objective Optimization
+
+Roadmap explicitly includes multi-objective optimisation 
+
+Extend objective vector:
+
+[
+\max (Profit,; SoilHealth,; SelfSufficiency,; GHG,; Biodiversity)
+]
+
+Compute Pareto frontier via:
+
+* NSGA-II
+* ε-constraint method
+
+This gives decision space instead of a single solution.
+
+---
+
+# 🐝 7. Biodiversity & Habitat Variable
+
+LES includes wildlife & habitat modeling 
+
+Add habitat index:
+
+[
+H_t = f(Cover, Crop\ Diversity, Hedgerows)
+]
+
+Constraint or objective:
+
+[
+H_t \ge H_{min}
+]
+
+Livestock + crop choices influence biodiversity.
+
+---
+
+# 🌱 8. Succession / Long-Term Soil Carbon
+
+Right now soil is bounded bucket.
+
+Add long-term carbon dynamics:
+
+[
+C_{t+1} = C_t + inputs - respiration(C_t, Temp_t)
+]
+
+Respiration increases with temperature → climate sensitivity.
+
+This allows evaluation of:
+
+* cover crop frequency
+* grazing intensity
+* compost use
+* reduced tillage
+
+---
+
+# 🔄 9. Cross-Domain Coupling (Diet ↔ Feed ↔ Farm)
+
+From the roadmap:
+
+* diet optimizer shares ingredient pool with feed optimizer 
+
+Add shared inventory:
+
+[
+Inventory_t = (Veg, Fish, Eggs, BSFL, Duckweed)
+]
+
+Human optimizer and feed optimizer both consume from:
+
+[
+Inventory_{t+1} = Inventory_t + Production_t - HumanUse_t - FeedUse_t
+]
+
+Now:
+
+* eating more fish reduces feed demand
+* feeding more BSFL reduces compost input
+* planting more duckweed increases feed self-sufficiency
+
+This is a **closed ecological-economical loop**.
+
+---
+
+# ⚡ 10. Automation Control Loop
+
+Roadmap Phase 3 includes real-time adaptive control 
+
+Add:
+
+[
+Control_t = \pi(X_t)
+]
+
+Where policy π is learned (RL or MPC).
+
+This converts the system into:
+
+> Model Predictive Control over a living farm.
+
+---
+
+# 🔬 11. Emergent Property Metrics
+
+Add emergent indicators:
+
+* Nutrient circularity ratio
+* % On-farm protein
+* Energy return on energy invested (EROEI)
+* Net ecosystem productivity
+* Water use efficiency
+
+These are functions of state trajectory:
+
+[
+Metric = \Phi(X_1,\dots,X_T)
+]
+
+These allow evaluation beyond raw profit.
+
+---
+
+# 🧩 12. Formal Unification
+
+The fully extended formalism becomes:
+
+[
+X_{t+1} = T(X_t, a_t, \omega_t)
+]
+
+[
+a_t \in \mathcal{A}(X_t)
+]
+
+[
+\max_{a_{1:T}} \sum_{t=1}^{T} R(X_t,a_t)
+]
+
+Subject to:
+
+* Soil invariants
+* Resource invariants
+* Water & oxygen invariants
+* Habitat invariants
+* Capital constraints
+
+Where:
+
+[
+X_t =
+(\text{Soil}, \text{Water}, \text{Livestock}, \text{Inventory}, \text{Infrastructure}, \text{Climate})
+]
+
+This is a **deterministic hybrid dynamical system with constrained optimal control**.
+
+---
+
+# 🏁 What This Becomes
+
+You now have:
+
+* Farm rotation optimizer
+* Nutrient loop optimizer
+* Feed & diet co-optimizer
+* Environmental simulator
+* Infrastructure planner
+* Risk-aware controller
+* Automation-ready control core
+
+That is no longer a “rotation planner.”
+
+It is:
+
+> A fully coupled agro-ecological optimal control system.
