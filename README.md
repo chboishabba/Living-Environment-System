@@ -843,3 +843,377 @@ Imagine LES + Aquaponics-Calculator running a simulated or real system:
 4. **Visualize** growth progression and environmental impact over months/years.
 
 ---
+
+
+
+
+
+
+
+
+
+
+
+
+
+Working:
+
+
+
+
+## 0) Sets and indices
+
+* Time steps (within 1 year):
+  [
+  t \in {1,\dots,T}
+  ]
+  Choose (T) (e.g. 4 seasonal slots, or 6–8 crop windows).
+
+* Beds/fields (optional, for multi-block planning):
+  [
+  b \in {1,\dots,B}
+  ]
+
+* Crop/guild actions (your palette):
+  [
+  c \in \mathcal{C},\quad |\mathcal{C}| = 10 \text{ (example)}
+  ]
+
+* Input actions (KNF, compost, minerals, purchased fert, irrigation events):
+  [
+  i \in \mathcal{I}
+  ]
+
+* Livestock management actions (graze, rest, move poultry tractor, cut-and-carry):
+  [
+  \ell \in \mathcal{L}
+  ]
+
+We bundle “what you do at time (t)” into one **composite action**:
+[
+a_t = (c_t, i_t, \ell_t)
+]
+Some components can be “none”.
+
+---
+
+## 1) State
+
+### 1.1 Bed/field state (per bed (b))
+
+A minimal, rotation-capable soil + memory state:
+
+[
+x_{t}^{(b)} = \big(N_{t}^{(b)},, C_{t}^{(b)},, S_{t}^{(b)},, F_{t}^{(b)},, D_{t}^{(b)}\big)
+]
+
+Where (use either buckets or physical units):
+
+* (N): available fertility / N-credit bucket (or kg/ha available N)
+* (C): soil carbon/OM bucket (or %SOC / tC/ha proxy)
+* (S): soil structure bucket (compaction/aggregate proxy)
+* (F): last crop family / pressure class (categorical)
+* (D): disease/pest pressure bucket (optional but useful)
+
+**Minimal-minimal** is ((N,C,S,F)). (D) can be derived from (F) with a rule, but explicit (D) is cleaner.
+
+### 1.2 Farm-global resource state (shared across beds)
+
+This is where KNF + livestock constraints live:
+
+[
+g_t = (W_t,, L_t,, A_t,, K^N_t,, K^C_t,, K^K_t,, M_t,, B_t,, P_t,, Z_t)
+]
+
+You can drop what you don’t need; the minimal useful subset is:
+
+* (W_t): water budget (kL)
+* (L_t): labor hours budget
+* (A_t): “processing area / capacity” (e.g., barrel space, compost bays)
+* (K^N_t): KNF “N-equivalent credits” available
+* (K^C_t): carbon/compost/mulch credits available
+* (M_t): manure credits available (or split N/P/K)
+* (B_t): available forage/biomass (if grazing)
+* (P_t): parasite pressure (if ruminants)
+* (Z_t): stocking / head-days capacity remaining (optional)
+
+**Key idea:** KNF and livestock are not “vibes”; they are *stocks and flows* that appear in the same balance as fertility and costs.
+
+### 1.3 Full system state
+
+Single bed:
+[
+X_t = (x_t, g_t)
+]
+
+Multiple beds:
+[
+X_t = \big(x_t^{(1)},\dots,x_t^{(B)},, g_t\big)
+]
+
+---
+
+## 2) Actions
+
+At each step (t) and bed (b):
+
+### 2.1 Crop/guild action (c_t^{(b)} \in \mathcal{C})
+
+Each crop/guild has attributes:
+
+* family: (fam(c))
+* revenue: (Rev_t(c)) (may depend on season (t))
+* variable cost: (Cost_t(c))
+* resource demands: (w(c), \ell(c)) etc.
+* soil impacts: (\Delta_N(c), \Delta_C(c), \Delta_S(c))
+* nutrient demand vector (optional): (dem(c) = (n(c),p(c),k(c)))
+
+You can interpret (\Delta_N(c)) as nutrient removal, or as “net effect given typical residue return”.
+
+### 2.2 Input action (i_t \in \mathcal{I})
+
+Inputs are **production** and/or **application** operations, e.g.:
+
+* produce KNF N: `make_KNF_N`
+* apply KNF N to bed (b): `apply_KNF_N(b, u)`
+* compost production: `make_compost`
+* compost application: `apply_compost(b, u)`
+* purchased fertiliser: `buy_N(u)`
+* irrigation event: `irrigate(u)` (or water is baked into crop demand)
+
+Each input action consumes resources and adds to either farm stocks or bed soil:
+
+* consumes: water/labor/space/money/biomass
+* produces: (K^N, K^C,) etc., or directly increases (N,C,S) on a bed
+
+### 2.3 Livestock action (\ell_t \in \mathcal{L})
+
+Examples:
+
+* graze paddock/cover on bed (b) (ruminants)
+* poultry tractor pass on bed (b)
+* rest/recovery (no animals)
+* cut-and-carry biomass into compost system
+
+Livestock actions have:
+
+* revenue: eggs/milk/meat value (or can be modelled separately)
+* costs: labor, feed, water, fencing moves
+* soil effects: manure adds (N/C), but traffic can reduce (S)
+* forage/manure flows: (\Delta B, \Delta M)
+* parasite pressure updates: (\Delta P)
+
+---
+
+## 3) Deterministic transition function
+
+### 3.1 Bed transition
+
+For each bed (b):
+[
+x_{t+1}^{(b)} = T_{bed}\big(x_t^{(b)},, c_t^{(b)},, i_t,, \ell_t,, g_t\big)
+]
+
+In the simple additive bucket model:
+[
+\begin{aligned}
+N' &= clamp(N + \Delta_N(c) + \Delta_N(i,\ell),, 0..N_{\max})\
+C' &= clamp(C + \Delta_C(c) + \Delta_C(i,\ell),, 0..C_{\max})\
+S' &= clamp(S + \Delta_S(c) + \Delta_S(i,\ell),, 0..S_{\max})\
+F' &= fam(c) \quad (\text{or unchanged if } c=\text{none})\
+D' &= clamp(D + \Delta_D(c,F,D) + \Delta_D(\ell),, 0..D_{\max})
+\end{aligned}
+]
+
+A good deterministic disease rule is:
+
+* if you repeat family too soon → (D) increases
+* if you break family → (D) decreases
+* livestock/poultry pass can decrease (D) for some pests but might increase for others; keep it coarse.
+
+### 3.2 Global resource transition
+
+[
+g_{t+1} = T_{farm}(g_t, {c_t^{(b)}}_b, i_t, \ell_t)
+]
+
+Typical updates:
+
+* (W' = W - \text{water used by crops and inputs})
+* (L' = L - \text{labor used})
+* (A' = A - \text{space occupied}) (or capacity constraint per step)
+* (K^N) increases when you *make* KNF inputs, decreases when you *apply* them
+* (B) (forage) decreases when grazed, increases under rest/growth/cover crops
+* (M) (manure credits) increases with grazing/stocking, decreases when applied/exported
+* (P) (parasites) increases with grazing pressure, decreases with rest windows
+
+Everything is deterministic: fixed deltas per action (or piecewise by state bucket).
+
+---
+
+## 4) Constraints (soil maintenance + feasibility)
+
+### 4.1 Soil invariants (hard)
+
+For all (t) and beds (b):
+[
+N_t^{(b)} \ge N_{\min},\quad C_t^{(b)} \ge C_{\min},\quad S_t^{(b)} \ge S_{\min}
+]
+
+Optionally:
+[
+D_t^{(b)} \le D_{\max}
+]
+
+### 4.2 Rotation constraints (hard)
+
+Examples:
+
+* No same family back-to-back:
+  [
+  fam(c_t^{(b)}) \ne F_t^{(b)}
+  ]
+
+* Cooldown of length (k): keep last (k) families in state, forbid repeats (still deterministic; state includes a short history).
+
+### 4.3 Resource constraints (hard)
+
+Per step:
+[
+W_t \ge 0,\quad L_t \ge 0,\quad A_t \ge 0,\quad K^N_t \ge 0,\quad \dots
+]
+
+Livestock-specific:
+
+* forbid grazing if soil too wet/fragile:
+  [
+  \text{if } S_t^{(b)} \le S_{wet} \text{ then grazing action disallowed}
+  ]
+  (or use a separate “traffic risk” scalar if you want).
+
+---
+
+## 5) Reward / profit model
+
+Per step (t), total profit is:
+
+[
+R_t(X_t, a_t) =
+\sum_{b=1}^{B}\Big( Rev_t(c_t^{(b)}) - Cost_t(c_t^{(b)})\Big)
+;-; Cost_t(i_t);-;Cost_t(\ell_t)
+]
+
+Where costs include:
+
+* labor valued at a wage (or opportunity cost)
+* water at marginal cost
+* materials (fish hydrolysate, sugars, minerals, bedding)
+* depreciation if you want
+
+### Soil not just “maintained”, but incentivized
+
+If you only use hard minima, the optimizer tends to “hug the boundary”. Add an end-of-year soil value:
+
+[
+R_{terminal}(X_{T+1}) = \lambda_N \sum_b N_{T+1}^{(b)} + \lambda_C \sum_b C_{T+1}^{(b)} + \lambda_S \sum_b S_{T+1}^{(b)}
+]
+
+This makes it prefer soil-positive plans when profit differences are small.
+
+---
+
+## 6) The optimization problem
+
+### Single bed (DP)
+
+[
+\max_{a_1,\dots,a_T} \sum_{t=1}^{T} R_t(X_t,a_t) + R_{terminal}(X_{T+1})
+]
+subject to:
+[
+X_{t+1} = T(X_t,a_t),\quad X_t \in \text{Feasible} ;\forall t
+]
+
+### Multiple beds with coupling (MIP recommended)
+
+If beds share labor/water/KNF stocks, the optimal choice is a coupled optimization. DP can still work if you keep global state small; MIP scales better.
+
+---
+
+## 7) Solution methods
+
+### 7.1 Deterministic Dynamic Programming (exact, easy for 1 bed)
+
+Value function:
+[
+V_t(X_t) = \max_{a_t \in \mathcal{A}(X_t)} \left(R_t(X_t,a_t) + V_{t+1}(T(X_t,a_t))\right)
+]
+with (V_{T+1} = R_{terminal}).
+
+Works great when state is bucketed and small.
+
+### 7.2 Mixed Integer Programming (exact, best for many beds)
+
+Binary decision variables like:
+
+* (y_{t,b,c} \in {0,1}): choose crop (c) on bed (b) at time (t)
+* (u_{t,i}\ge 0): amount of input action (i) at time (t)
+* (z_{t,\ell}\in{0,1}): livestock action choices
+
+Then linear constraints enforce:
+
+* one crop per bed per step
+* resource budgets
+* soil bucket transitions (piecewise linear or discretized)
+* rotation rules
+  Objective is linear: maximize revenue minus costs.
+
+---
+
+## 8) Data schema (what you must supply)
+
+### Crop/guild record
+
+* `name`
+* `family`
+* `rev[t]` (or price × yield model)
+* `cost[t]`
+* `water[t]`, `labor[t]`
+* `delta_soil`: `(ΔN, ΔC, ΔS, ΔD)` buckets
+* optional: `nutrient_demand`: `(n,p,k)` physical units
+
+### Input record (KNF / compost / purchased)
+
+* `name`
+* `type`: `produce` or `apply` or `buy`
+* resource consumption: labor, water, space, money, biomass
+* stock changes: `ΔK^N`, `ΔK^C`, `ΔM`, etc.
+* bed effect if applied: `ΔN,ΔC,ΔS`
+
+### Livestock record
+
+* `name`
+* revenue/cost per step
+* forage consumption / manure production
+* soil and disease impacts
+* guards (e.g., minimum structure or maximum wetness)
+
+### Feasibility thresholds
+
+* soil minima ((N_{\min}, C_{\min}, S_{\min}))
+* disease max (D_{\max})
+* resource budgets per step ((W_t,L_t,A_t,\dots))
+
+---
+
+## 9) Deterministic “dispatch” policy view (state machine)
+
+The whole thing is a deterministic automaton with an optimal controller:
+
+* **States:** (X_t)
+* **Actions:** (a_t)
+* **Transition:** (X_{t+1}=T(X_t,a_t))
+* **Accepting states:** Feasible (soil maintained, resources nonnegative)
+* **Controller:** chooses (a_t) to maximize cumulative reward
+
+So: **state machine + optimizer = most profitable feasible rotations**.
