@@ -19,7 +19,19 @@ This means:
 * Diet & feed optimisation → changes ingredient sourcing → LES can simulate **knock-on environmental effects** (e.g., growing more duckweed reduces nutrient discharge into pond → improves oxygen saturation → changes fish growth curve).
 * LES outputs → inform diet/feed optimiser constraints (e.g., predicted lower tomato yield → adjust meal plans, recommend alternative crops).
 
+Demo.py (basic implementation of optimiser)
+```
+   Season     Action      Family  Price(AUD/kg)  Yield(kg/bed)  Cost(AUD/bed)  Profit(AUD)  N  C  S  N_next  C_next  S_next
+0       1     Tomato  Solanaceae           3.98            120            180       297.60  4  4  4       2       3       3
+1       2  CoverCrop       Cover           0.00              0             70       -70.00  2  3  3       4       5       4
+2       3      Beans      Legume           7.16             60            140       289.60  4  5  4       4       4       4
+3       4     Tomato  Solanaceae           3.98            100            170       228.00  4  4  4       2       3       3
 
+Summary:
+Total profit (AUD): 745.2
+End soil (N,C,S): (2, 3, 3)
+Constraints: N,C,S >= (2,2,2); no same-family back-to-back (Cover resets).
+```
 
 # 🌍 Living Environment Simulator (LES)
 
