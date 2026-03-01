@@ -963,6 +963,20 @@ Multiple beds:
 X_t = \big(x_t^{(1)},\dots,x_t^{(B)},, g_t\big)
 ]
 
+### 1.4 State Reduction Principles (LES)
+
+LES uses **bucketed state** to keep planning tractable while preserving safety and feasibility. These are the reduction principles we follow:
+
+1. Equivalence classes: many raw states map to one bucket; behavior is defined at the bucket level.
+2. Monotone transitions: higher-risk or higher-severity buckets cannot be masked by combination rules.
+3. Guarded transitions: hard invariants (soil/resource/water) are enforced on the reduced state.
+4. Piecewise dynamics: transitions are piecewise by bucket, not fully continuous.
+5. Canonicalization: periodic or categorical state is mapped to a canonical representative (e.g., rotation phase).
+6. Coarse-to-fine refinement: start coarse for DP/MIP, then locally refine buckets where policies are sensitive.
+7. Objective shaping: terminal rewards preserve long-horizon outcomes under coarse state.
+
+Implementation scaffolding lives in `les_state_reduction.py`.
+
 ---
 
 ## 2) Actions
@@ -1137,6 +1151,16 @@ This makes it prefer soil-positive plans when profit differences are small.
 ## 6) The optimization problem
 
 ### Single bed (DP)
+
+**DP vs MIP (quick guide)**
+
+DP = **Dynamic Programming**. It enumerates state transitions step‑by‑step and is best when state is small/bucketed.
+MIP = **Mixed‑Integer Programming**. It encodes the whole horizon as linear constraints with integer decisions and is best when you have many beds/resources/couplings.
+
+Rule of thumb:
+1. Use DP for small, discrete state and short horizons.
+2. Use MIP when global resources or many beds make state explode.
+3. Hybrid is common: DP for per‑bed policy, MIP for global scheduling.
 
 [
 \max_{a_1,\dots,a_T} \sum_{t=1}^{T} R_t(X_t,a_t) + R_{terminal}(X_{T+1})
@@ -1933,6 +1957,24 @@ You now have:
 * Automation-ready control core
 
 That is no longer a “rotation planner.”
+
+---
+
+## Progress Log
+
+* Added explicit state reduction principles (bucketed state, monotonicity, guarded transitions, coarse-to-fine refinement).
+* Added a state reduction scaffold (`les_state_reduction.py`) with bucketization, invariants, and monotone checks.
+* Expanded demo state to include disease bucket `D` and resource stock `K`, with validation of action data.
+* Added disease half-life decay and a 2-year tomato cooldown, and extended the demo to a 20-year horizon.
+* Added tests for bucketization, invariants, and monotonicity checks.
+
+## Roadmap
+
+See `ROADMAP.md` for the phased plan covering GIS/data services, physical models, optimizer/MIP, HPC coupling, and visualization.
+
+## Brainstorming Notes
+
+All PDF summaries and brainstorming notes now live in `BRAINSTORMING_NOTES.md`. The lobster prediction market is in scope and documented there.
 
 It is:
 
