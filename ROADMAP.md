@@ -9,7 +9,10 @@ This roadmap focuses on the major unimplemented pillars called out in the repo: 
    - Decide on canonical time axis and coordinate conventions.
 2. **State registry + config**
    - Central config for grid layout, time step, and module I/O signatures.
-   - Formalize variable registration, ranges, and units.
+   - Formalize variable registration, ranges, units, and module contracts.
+3. **Lane + validation policy**
+   - Classify modules and scenarios into `canonical`, `experimental`, and `validation` lanes.
+   - Add invariant checks and counterexample-style validators that can surface a failing state.
 
 ## Phase 1: GIS + Data Services (1–2 months)
 
@@ -73,13 +76,14 @@ This roadmap focuses on the major unimplemented pillars called out in the repo: 
 ## Dependencies Summary
 
 1. GIS/data services are foundational for almost everything.
-2. Physical models depend on data ingestion and state registry.
+2. Physical models depend on data ingestion, state registry, and explicit contracts.
 3. Optimizer can run in parallel but needs consistent state definitions.
-4. HPC coupling requires at least one module with BMI-like boundaries.
+4. HPC coupling requires at least one module with BMI-like boundaries and validated I/O signatures.
 5. Visualization depends on stable output formats (Zarr/GeoTIFF).
 
 ## Immediate Next Actions
 
 1. Decide on the canonical grid + coordinate system and CF metadata schema.
 2. Stand up the GIS ingest pipeline and prove it with a small dataset.
-3. Choose hydrology + erosion “lite” formulations for first integration.
+3. Define the first module contract surface and validation helper shape.
+4. Choose hydrology + erosion “lite” formulations for first integration.

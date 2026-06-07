@@ -12,6 +12,14 @@ from dataclasses import dataclass
 from typing import Dict, Any
 
 
+class PumpInvariantError(ValueError):
+    """Raised when pump configuration or runtime invariants are violated."""
+
+    def __init__(self, message: str, *, witness: Dict[str, Any]) -> None:
+        super().__init__(message)
+        self.witness = witness
+
+
 @dataclass
 class PumpController:
     """Control a recirculation pump based on water-quality variables.
@@ -48,11 +56,47 @@ class PumpController:
     total_volume: float = 0.0
 
     def __post_init__(self) -> None:
+        self._validate_configuration()
         self._ensure_state()
         self._adjust_runtime()
 
     # ------------------------------------------------------------------
     # internal helpers
+    def _raise_invariant(
+        self, message: str, *, context: Dict[str, Any] | None = None
+    ) -> None:
+        witness: Dict[str, Any] = {
+            "flow_rate": self.flow_rate,
+            "var_key": self.var_key,
+            "lower_threshold": self.lower_threshold,
+            "upper_threshold": self.upper_threshold,
+            "cycle_duration": self.cycle_duration,
+            "time_in_cycle": self.time_in_cycle,
+            "pump_on_time": self.pump_on_time,
+            "is_on": self.is_on,
+            "total_volume": self.total_volume,
+        }
+        if context:
+            witness.update(context)
+        raise PumpInvariantError(message, witness=witness)
+
+    def _validate_configuration(self) -> None:
+        if self.flow_rate < 0.0:
+            self._raise_invariant(
+                "flow_rate must be nonnegative",
+                context={"invariant": "nonnegative_flow_rate"},
+            )
+        if self.cycle_duration <= 0.0:
+            self._raise_invariant(
+                "cycle_duration must be strictly positive",
+                context={"invariant": "positive_cycle_duration"},
+            )
+        if self.lower_threshold > self.upper_threshold:
+            self._raise_invariant(
+                "lower_threshold must be less than or equal to upper_threshold",
+                context={"invariant": "ordered_thresholds"},
+            )
+
     def _ensure_state(self) -> None:
         pumps = self.state.setdefault("pumps", {})
         pumps.setdefault(
@@ -84,6 +128,15 @@ class PumpController:
                 self.upper_threshold - self.lower_threshold
             )
         self.pump_on_time = ratio * self.cycle_duration
+        if not 0.0 <= self.pump_on_time <= self.cycle_duration:
+            self._raise_invariant(
+                "pump_on_time must stay within cycle bounds",
+                context={
+                    "invariant": "runtime_within_cycle_bounds",
+                    "read_value": value,
+                    "derived_ratio": ratio,
+                },
+            )
 
     # ------------------------------------------------------------------
     def update(self, dt: float) -> float:
@@ -94,6 +147,11 @@ class PumpController:
         float
             Estimated volume of water moved during the update.
         """
+        if dt < 0.0:
+            self._raise_invariant(
+                "dt must be nonnegative",
+                context={"invariant": "nonnegative_dt", "dt": dt},
+            )
 
         self.time_in_cycle += dt
         if self.time_in_cycle >= self.cycle_duration:

@@ -1,11 +1,15 @@
 from les_state_reduction import (
     BucketConfig,
+    ComparisonSummary,
     SoilBounds,
     SoilBuckets,
     SoilDelta,
     apply_soil_delta_guarded,
     check_monotone_transition,
+    compare_projected_trajectory,
+    divergence_proxy_vector,
     enumerate_bucket_states,
+    project_soil_buckets,
 )
 
 
@@ -55,3 +59,60 @@ def test_monotone_transition_detects_violation() -> None:
 
     violations = check_monotone_transition(states, transition)
     assert violations
+
+
+def test_divergence_proxy_vector_is_signed_difference() -> None:
+    projected = {"n": 3.0, "c": 2.0, "s": 4.0}
+    reduced = {"n": 2.5, "c": 3.0, "s": 4.0}
+
+    proxy = divergence_proxy_vector(projected, reduced)
+
+    assert proxy == {"c": -1.0, "n": 0.5, "s": 0.0}
+
+
+def test_compare_projected_trajectory_returns_first_witness() -> None:
+    detailed = [
+        {"n": 2.0, "c": 2.0, "s": 2.0},
+        {"n": 3.0, "c": 2.0, "s": 1.0},
+    ]
+    reduced = [
+        {"n": 2.0, "c": 2.0, "s": 2.0},
+        {"n": 1.0, "c": 2.0, "s": 1.0},
+    ]
+
+    summary = compare_projected_trajectory(
+        detailed,
+        reduced,
+        invariants=[("soil_floor", lambda state: state["n"] >= 2.0)],
+        l1_tolerance=1.0,
+        linf_tolerance=1.0,
+    )
+
+    assert isinstance(summary, ComparisonSummary)
+    assert len(summary.steps) == 2
+    assert summary.first_witness is not None
+    assert summary.first_witness.step == 1
+    assert summary.first_witness.proxy_vector["n"] == 2.0
+    assert "l1>1.0" in summary.first_witness.message
+    assert summary.first_witness.failing_invariants == ("soil_floor",)
+
+
+def test_compare_projected_trajectory_exposes_proxy_series_for_offline_use() -> None:
+    detailed = [
+        project_soil_buckets(SoilBuckets(n=2, c=3, s=4, d=0, f=0)),
+        project_soil_buckets(SoilBuckets(n=3, c=3, s=4, d=0, f=0)),
+    ]
+    reduced = [
+        {"n": 2.0, "c": 2.5, "s": 4.0, "d": 0.0, "f": 0.0},
+        {"n": 2.0, "c": 3.0, "s": 3.0, "d": 0.0, "f": 0.0},
+    ]
+
+    summary = compare_projected_trajectory(detailed, reduced)
+
+    assert summary.first_witness is None
+    assert summary.divergence_proxy_series == (
+        {"c": 0.5, "d": 0.0, "f": 0.0, "n": 0.0, "s": 0.0},
+        {"c": 0.0, "d": 0.0, "f": 0.0, "n": 1.0, "s": 1.0},
+    )
+    assert summary.max_l1_divergence == 2.0
+    assert summary.max_linf_divergence == 1.0

@@ -86,7 +86,7 @@ Constraints: N,C,S >= (2,2,2); no same-family back-to-back (Cover resets).
         +-------+---------------------------------+------+
         |          LES Orchestrator / Scheduler          |
         |  • Time manager  • Event bus  • Couplers       |
-        |  • State registry (xarray)  • Unit/CF checks   |
+        |  • State registry (schema-bearing)  • Unit/CF checks   |
         +--+---------------+-------------------+--------+
            |               |                   |
      +-----+-----+   +-----+-----+       +-----+-----+
@@ -109,7 +109,7 @@ Constraints: N,C,S >= (2,2,2); no same-family back-to-back (Cover resets).
 
 * **Time manager**: discrete timesteps with sub‑stepping; adaptive where supported.
 * **Couplers**: sequential or concurrent exchange with **conservative remapping** (area/flow preserving). Options: LES native coupler (xarray+Dask) or HPC coupler (ESMF/ESMPy, OpenMI, BMI adapters).
-* **State registry**: shared **xarray** datasets with CF‑conventions; variable naming schema (e.g., `veg.canopy_cover`, `hyd.q_surface`, `atm.precip_rate`).
+* **State registry**: shared, schema-bearing state with CF-style variable names and metadata; the current implementation is still lightweight and dict-backed, with stricter registry backends left for the contract layer.
 * **Event bus**: ZeroMQ/gRPC for module messages (e.g., fire ignition, management actions).
 
 ### Module API (LES‑BMI)
@@ -120,6 +120,16 @@ Minimal interface (inspired by **CSDMS BMI**):
 * `update(dt)` → advances internal state; exposes `get_value(var)` / `set_value(var)`.
 * `finalize()`
 * Grid/mesh getters; CRS; metadata; checkpoint/restore hooks.
+
+### Model Lanes & Validation
+
+LES work is separated into three lanes:
+
+* **canonical**: the preferred model path for normal scenarios and documented outputs.
+* **experimental**: exploratory modules or couplings that are still being evaluated.
+* **validation**: invariant checks, counterexample harnesses, and regression scenarios that prove or disprove assumptions.
+
+The near-term foundation work is to make module contracts explicit at the boundary: required inputs, emitted outputs, units, valid ranges, and conservation or balance expectations. Validation helpers should be able to return a concrete failing state or witness when those expectations are violated.
 
 ---
 
@@ -244,7 +254,7 @@ Results feed closed‑loop controllers, diet/feed planners, and stakeholder dash
 **Where LES advances**
 
 * **Real‑time, multi‑domain coupling** with **bidirectional** exchanges at controllable frequencies.
-* A **unified state registry** (xarray) with CF metadata to minimize glue code.
+* A **unified state registry** with CF metadata to minimize glue code; the current implementation path is intentionally lightweight and can later be backed by a stricter array store if needed.
 * **Two execution paths**: rapid Python+Dask prototyping **and** HPC MPI coupling for heavy runs.
 * **Bridges to interactive engines**, enabling explainable scenario exploration.
 
@@ -974,8 +984,9 @@ LES uses **bucketed state** to keep planning tractable while preserving safety a
 5. Canonicalization: periodic or categorical state is mapped to a canonical representative (e.g., rotation phase).
 6. Coarse-to-fine refinement: start coarse for DP/MIP, then locally refine buckets where policies are sensitive.
 7. Objective shaping: terminal rewards preserve long-horizon outcomes under coarse state.
+8. Divergence-aware reduction: reduced runners should be compared against projected detailed trajectories, with a cheap proxy vector available for offline drift analysis or lightweight correction terms.
 
-Implementation scaffolding lives in `les_state_reduction.py`.
+Implementation scaffolding lives in `les_state_reduction.py`, including bucketization, guarded transitions, monotonicity checks, and trajectory comparison on a projected reduced-state surface.
 
 ---
 

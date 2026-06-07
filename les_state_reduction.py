@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Sequence
 
+from les.contracts import Counterexample, InvariantEnvelope
+
 
 @dataclass(frozen=True)
 class BucketConfig:
@@ -79,6 +81,89 @@ class SoilBounds:
     max_d: int | None = None
 
 
+ProjectionFn = Callable[[Mapping[str, float]], Mapping[str, float]]
+ReducedInvariant = Callable[[Mapping[str, float]], bool]
+
+
+@dataclass(frozen=True)
+class DivergenceWitness:
+    """Counterexample-style witness for reduced-runner divergence."""
+
+    step: int
+    message: str
+    projected_detailed: Mapping[str, float]
+    reduced_state: Mapping[str, float]
+    proxy_vector: Mapping[str, float]
+    failing_invariants: tuple[str, ...]
+    counterexample: Counterexample | None = None
+
+
+@dataclass(frozen=True)
+class StepComparison:
+    """Per-step comparison between projected detailed state and reduced state."""
+
+    step: int
+    projected_detailed: Mapping[str, float]
+    reduced_state: Mapping[str, float]
+    proxy_vector: Mapping[str, float]
+    l1_divergence: float
+    linf_divergence: float
+    failing_invariants: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ComparisonSummary:
+    """Aggregate comparison result for detailed vs reduced trajectories."""
+
+    steps: tuple[StepComparison, ...]
+    first_witness: DivergenceWitness | None
+
+    @property
+    def max_l1_divergence(self) -> float:
+        if not self.steps:
+            return 0.0
+        return max(step.l1_divergence for step in self.steps)
+
+    @property
+    def max_linf_divergence(self) -> float:
+        if not self.steps:
+            return 0.0
+        return max(step.linf_divergence for step in self.steps)
+
+    @property
+    def divergence_proxy_series(self) -> tuple[Mapping[str, float], ...]:
+        return tuple(step.proxy_vector for step in self.steps)
+
+
+@dataclass(frozen=True)
+class ComparisonHarness:
+    """Reusable validation seam for detailed-vs-reduced trajectory checks."""
+
+    invariants: tuple[tuple[str, ReducedInvariant], ...] = ()
+    envelope: InvariantEnvelope | None = None
+    projection: ProjectionFn | None = None
+    keys: tuple[str, ...] | None = None
+    l1_tolerance: float | None = None
+    linf_tolerance: float | None = None
+
+    def compare(
+        self,
+        detailed_states: Sequence[Mapping[str, float]],
+        reduced_states: Sequence[Mapping[str, float]],
+    ) -> ComparisonSummary:
+        """Run the configured comparison surface over two aligned trajectories."""
+        return compare_projected_trajectory(
+            detailed_states,
+            reduced_states,
+            invariants=self.invariants,
+            envelope=self.envelope,
+            projection=self.projection,
+            keys=self.keys,
+            l1_tolerance=self.l1_tolerance,
+            linf_tolerance=self.linf_tolerance,
+        )
+
+
 def reduce_raw_soil(
     raw: Mapping[str, float],
     configs: Mapping[str, BucketConfig],
@@ -90,6 +175,17 @@ def reduce_raw_soil(
     s = configs["s"].bucketize(raw.get("s", configs["s"].min_value))
     d = configs["d"].bucketize(raw.get("d", configs["d"].min_value))
     return SoilBuckets(n=n, c=c, s=s, d=d, f=family)
+
+
+def project_soil_buckets(state: SoilBuckets) -> dict[str, float]:
+    """Project bucketed soil state into a numeric reduced-state surface."""
+    return {
+        "n": float(state.n),
+        "c": float(state.c),
+        "s": float(state.s),
+        "d": float(state.d),
+        "f": float(state.f),
+    }
 
 
 def canonical_rotation_phase(step: int, period: int) -> int:
@@ -104,6 +200,127 @@ def combine_severity(*levels: int) -> int:
     if not levels:
         return 0
     return max(levels)
+
+
+def divergence_proxy_vector(
+    projected_detailed: Mapping[str, float],
+    reduced_state: Mapping[str, float],
+    keys: Sequence[str] | None = None,
+) -> dict[str, float]:
+    """Return a cheap signed proxy vector: detailed projection minus reduced state."""
+    if keys is None:
+        keys = tuple(sorted(set(projected_detailed) & set(reduced_state)))
+    proxy: dict[str, float] = {}
+    for key in keys:
+        proxy[key] = float(projected_detailed[key]) - float(reduced_state[key])
+    return proxy
+
+
+def _collect_counterexamples(
+    subject: str,
+    state_values: Mapping[str, float],
+    invariants: Sequence[tuple[str, ReducedInvariant]],
+) -> list[Counterexample]:
+    failures: list[Counterexample] = []
+    for name, invariant in invariants:
+        try:
+            ok = invariant(state_values)
+        except Exception as exc:  # pragma: no cover - defensive path
+            failures.append(
+                Counterexample(
+                    subject=subject,
+                    predicate=name,
+                    witness=dict(state_values),
+                    message=f"invariant raised: {exc}",
+                )
+            )
+            continue
+        if not ok:
+            failures.append(
+                Counterexample(
+                    subject=subject,
+                    predicate=name,
+                    witness=dict(state_values),
+                    message=f"invariant {name!r} failed",
+                )
+            )
+    return failures
+
+
+def compare_projected_trajectory(
+    detailed_states: Sequence[Mapping[str, float]],
+    reduced_states: Sequence[Mapping[str, float]],
+    *,
+    invariants: Sequence[tuple[str, ReducedInvariant]] = (),
+    envelope: InvariantEnvelope | None = None,
+    projection: ProjectionFn | None = None,
+    keys: Sequence[str] | None = None,
+    l1_tolerance: float | None = None,
+    linf_tolerance: float | None = None,
+) -> ComparisonSummary:
+    """Compare a detailed trajectory against a reduced one on a projected surface.
+
+    This is the core fast-runner validation surface:
+    1. project detailed state into reduced coordinates
+    2. compute a cheap divergence proxy vector
+    3. surface first tolerance or invariant failure as a witness
+    """
+    if len(detailed_states) != len(reduced_states):
+        raise ValueError("detailed_states and reduced_states must have the same length")
+    if projection is None:
+        projection = lambda state: state
+    active_invariants = envelope.invariants if envelope is not None else invariants
+    witness_subject = envelope.name if envelope is not None else "comparison"
+
+    comparisons: list[StepComparison] = []
+    first_witness: DivergenceWitness | None = None
+
+    for step, (detailed, reduced) in enumerate(zip(detailed_states, reduced_states)):
+        projected = projection(detailed)
+        proxy = divergence_proxy_vector(projected, reduced, keys=keys)
+        abs_values = [abs(value) for value in proxy.values()]
+        l1 = sum(abs_values)
+        linf = max(abs_values, default=0.0)
+
+        counterexamples = _collect_counterexamples(
+            witness_subject, reduced, active_invariants
+        )
+        failing_invariants = tuple(example.predicate for example in counterexamples)
+
+        comparisons.append(
+            StepComparison(
+                step=step,
+                projected_detailed=dict(projected),
+                reduced_state=dict(reduced),
+                proxy_vector=proxy,
+                l1_divergence=l1,
+                linf_divergence=linf,
+                failing_invariants=failing_invariants,
+            )
+        )
+
+        if first_witness is not None:
+            continue
+
+        tolerance_failures: list[str] = []
+        if l1_tolerance is not None and l1 > l1_tolerance:
+            tolerance_failures.append(f"l1>{l1_tolerance}")
+        if linf_tolerance is not None and linf > linf_tolerance:
+            tolerance_failures.append(f"linf>{linf_tolerance}")
+
+        if tolerance_failures or failing_invariants:
+            reasons = tolerance_failures + list(failing_invariants)
+            first_witness = DivergenceWitness(
+                step=step,
+                message=", ".join(reasons),
+                projected_detailed=dict(projected),
+                reduced_state=dict(reduced),
+                proxy_vector=proxy,
+                failing_invariants=failing_invariants,
+                counterexample=counterexamples[0] if counterexamples else None,
+            )
+
+    return ComparisonSummary(steps=tuple(comparisons), first_witness=first_witness)
 
 
 def apply_soil_delta(
