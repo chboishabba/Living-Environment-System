@@ -1990,3 +1990,4 @@ All PDF summaries and brainstorming notes now live in `BRAINSTORMING_NOTES.md`. 
 It is:
 
 > A fully coupled agro-ecological optimal control system.
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/chboishabba/living-environment-system)
